@@ -16,7 +16,8 @@ curl -sSL https://raw.githubusercontent.com/shahjalal132/vps-setup/main/setup.sh
 The script installs and configures a modern, high-performance stack optimized for Laravel:
 
 - **Web Server:** Nginx (with Laravel-optimized virtual host config)
-- **PHP:** 8.3 (FPM) with all required extensions (`bcmath`, `xml`, `mbstring`, `redis`, etc.)
+- **PHP:** 8.3 (CLI + FPM) with all required extensions (`bcmath`, `xml`, `mbstring`, `redis`, etc.)
+- **Composer:** Installed to `/usr/local/bin/composer` (official installer)
 - **Database:** MySQL Server
 - **Caching/Queue:** Redis Server (High-performance queue driver)
 - **Process Manager:** Node.js (v20) & PM2 (to keep your Laravel workers/Horizon alive)

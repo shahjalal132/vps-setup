@@ -32,48 +32,63 @@ if [[ -z "$DIR_NAME" || -z "$DOMAIN_NAME" ]]; then
 fi
 
 # --- 1. System Update ---
-echo -e "\n${CYAN}[1/7] Updating system packages...${NC}"
+echo -e "\n${CYAN}[1/8] Updating system packages...${NC}"
 export DEBIAN_FRONTEND=noninteractive
 apt update && apt upgrade -y
 apt install -y curl wget git unzip software-properties-common ca-certificates lsb-release apt-transport-https
 
 # --- 2. Install PHP 8.3 ---
 if ! command -v php &> /dev/null || [[ "$(php -v)" != *"8.3"* ]]; then
-    echo -e "\n${CYAN}[2/7] Installing PHP 8.3...${NC}"
+    echo -e "\n${CYAN}[2/8] Installing PHP 8.3...${NC}"
     add-apt-repository ppa:ondrej/php -y
     apt update
-    apt install -y php8.3-fpm php8.3-mysql php8.3-xml php8.3-curl php8.3-mbstring php8.3-zip php8.3-bcmath php8.3-intl php8.3-readline php8.3-redis php8.3-gd php8.3-sqlite3
+    apt install -y php8.3-cli php8.3-fpm php8.3-mysql php8.3-xml php8.3-curl php8.3-mbstring php8.3-zip php8.3-bcmath php8.3-intl php8.3-readline php8.3-redis php8.3-gd php8.3-sqlite3
     systemctl enable php8.3-fpm
 else
-    echo -e "\n${GREEN}[2/7] PHP 8.3 already installed. Skipping...${NC}"
+    echo -e "\n${GREEN}[2/8] PHP 8.3 already installed. Skipping...${NC}"
 fi
 
-# --- 3. Install Nginx ---
+# --- 3. Install Composer ---
+if ! command -v composer &> /dev/null; then
+    echo -e "\n${CYAN}[3/8] Installing Composer...${NC}"
+    curl -fsSL https://getcomposer.org/installer -o /tmp/composer-setup.php
+    if ! php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer; then
+        echo -e "${RED}Composer installation failed.${NC}"
+        rm -f /tmp/composer-setup.php
+        exit 1
+    fi
+    rm -f /tmp/composer-setup.php
+    echo -e "${GREEN}Composer installed at /usr/local/bin/composer${NC}"
+else
+    echo -e "\n${GREEN}[3/8] Composer already installed. Skipping...${NC}"
+fi
+
+# --- 4. Install Nginx ---
 if ! command -v nginx &> /dev/null; then
-    echo -e "\n${CYAN}[3/7] Installing Nginx...${NC}"
+    echo -e "\n${CYAN}[4/8] Installing Nginx...${NC}"
     apt install -y nginx
     systemctl enable nginx
 else
-    echo -e "\n${GREEN}[3/7] Nginx already installed. Skipping...${NC}"
+    echo -e "\n${GREEN}[4/8] Nginx already installed. Skipping...${NC}"
 fi
 
-# --- 4. Install MySQL & Redis ---
-echo -e "\n${CYAN}[4/7] Checking MySQL and Redis...${NC}"
+# --- 5. Install MySQL & Redis ---
+echo -e "\n${CYAN}[5/8] Checking MySQL and Redis...${NC}"
 [[ ! -f /usr/bin/mysql ]] && apt install -y mysql-server && systemctl enable mysql
 [[ ! -f /usr/bin/redis-server ]] && apt install -y redis-server && systemctl enable redis-server
 
-# --- 5. Install Node.js & PM2 ---
+# --- 6. Install Node.js & PM2 ---
 if ! command -v node &> /dev/null; then
-    echo -e "\n${CYAN}[5/7] Installing Node.js & PM2...${NC}"
+    echo -e "\n${CYAN}[6/8] Installing Node.js & PM2...${NC}"
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
     apt install -y nodejs
     npm install -g pm2
 else
-    echo -e "\n${GREEN}[5/7] Node.js already installed. Skipping...${NC}"
+    echo -e "\n${GREEN}[6/8] Node.js already installed. Skipping...${NC}"
 fi
 
-# --- 6. Directory Setup ---
-echo -e "\n${CYAN}[6/7] Setting up directory /var/www/$DIR_NAME...${NC}"
+# --- 7. Directory Setup ---
+echo -e "\n${CYAN}[7/8] Setting up directory /var/www/$DIR_NAME...${NC}"
 if [ ! -d "/var/www/$DIR_NAME" ]; then
     mkdir -p /var/www/"$DIR_NAME"/public
     chown -R www-data:www-data /var/www/"$DIR_NAME"
@@ -89,8 +104,8 @@ else
     echo -e "${YELLOW}Directory exists. Skipping creation...${NC}"
 fi
 
-# --- 7. Nginx Config & Repair ---
-echo -e "\n${CYAN}[7/7] Configuring Nginx...${NC}"
+# --- 8. Nginx Config & Repair ---
+echo -e "\n${CYAN}[8/8] Configuring Nginx...${NC}"
 
 # CRITICAL: Fix previous broken symlink error
 # This removes the "sites-available is a directory" error from previous runs
