@@ -39,7 +39,21 @@ Before running the script, ensure:
 Once the script finishes:
 1. **Secure MySQL:** Run `sudo mysql_secure_installation` to set your database root password.
 2. **Deploy App:** Clone your Laravel repository into the directory created by the script.
-3. **Queue Workers:** Start your Laravel workers using PM2:
+3. **Laravel permissions:** After the app code is in place, fix ownership and modes on `storage/` and `bootstrap/cache/` (required for caches, sessions, uploads, and views). Run the helper **as root** so it can `chown`/`chmod` (use `sudo` and enter your password when prompted—nothing is stored by the script):
+
+   ```bash
+   curl -sSL https://raw.githubusercontent.com/shahjalal132/vps-setup/main/permissions.sh | sudo bash
+   ```
+
+   Or from a clone of this repo:
+
+   ```bash
+   sudo bash permissions.sh
+   ```
+
+   You will be asked for the **project directory name** only (the same segment you used with `setup.sh`, e.g. `example` for `/var/www/example`). The script sets `www-data:www-data` on `storage` and `bootstrap/cache` and `ug+rwx` on those paths so PHP-FPM can write logs, sessions, and compiled views.
+
+4. **Queue Workers:** Start your Laravel workers using PM2:
    ```bash
    pm2 start "php artisan queue:work --tries=3" --name example-worker
    ```
