@@ -37,15 +37,23 @@ export DEBIAN_FRONTEND=noninteractive
 apt update && apt upgrade -y
 apt install -y curl wget git unzip software-properties-common ca-certificates lsb-release apt-transport-https
 
-# --- 2. Install PHP 8.3 ---
-if ! command -v php &> /dev/null || [[ "$(php -v)" != *"8.3"* ]]; then
-    echo -e "\n${CYAN}[2/8] Installing PHP 8.3...${NC}"
-    add-apt-repository ppa:ondrej/php -y
-    apt update
-    apt install -y php8.3-cli php8.3-fpm php8.3-mysql php8.3-xml php8.3-curl php8.3-mbstring php8.3-zip php8.3-bcmath php8.3-intl php8.3-readline php8.3-redis php8.3-gd php8.3-sqlite3
-    systemctl enable php8.3-fpm
-else
-    echo -e "\n${GREEN}[2/8] PHP 8.3 already installed. Skipping...${NC}"
+# --- 2. Install latest PHP + Laravel extensions ---
+echo -e "\n${CYAN}[2/8] Installing latest PHP and extensions...${NC}"
+add-apt-repository ppa:ondrej/php -y
+apt update
+apt install -y \
+    php-cli php-fpm \
+    php-mysql php-pgsql php-sqlite3 \
+    php-mbstring php-xml php-curl php-zip php-gd \
+    php-bcmath php-ctype php-json php-fileinfo php-tokenizer \
+    php-redis php-opcache php-intl php-exif php-sockets php-readline
+
+PHP_VERSION="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
+PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
+PHP_FPM_SOCK="/var/run/php/php${PHP_VERSION}-fpm.sock"
+
+if ! systemctl enable "$PHP_FPM_SERVICE" 2>/dev/null; then
+    echo -e "${YELLOW}Warning: ${PHP_FPM_SERVICE} not found. Check PHP-FPM installation.${NC}"
 fi
 
 # --- 3. Install Composer ---
@@ -134,7 +142,7 @@ server {
     location = /robots.txt  { access_log off; log_not_found off; }
 
     location ~ \.php$ {
-        fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
+        fastcgi_pass unix:$PHP_FPM_SOCK;
         fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
         include fastcgi_params;
     }
