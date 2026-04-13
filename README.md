@@ -10,6 +10,12 @@ Run this command on your fresh VPS as a **root** user:
 curl -sSL https://raw.githubusercontent.com/shahjalal132/vps-setup/main/setup.sh | sudo bash
 ```
 
+`setup.sh` is **independent**: it does not call other scripts in this repo. For a **non-interactive** install of the same stack (plus WordPress-oriented PHP extensions, Certbot, and WP-CLI) without creating a vhost, run **`installation.sh`** separately:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/shahjalal132/vps-setup/main/installation.sh | sudo bash
+```
+
 ---
 
 ## 🛠 What this script installs
@@ -40,17 +46,21 @@ Before running the script, ensure:
 Once the script finishes:
 1. **Secure MySQL:** Run `sudo mysql_secure_installation` to set your database root password.
 2. **Deploy App:** Clone your Laravel repository into the directory created by the script.
-3. **Laravel permissions:** After the app code is in place, fix ownership and modes on `storage/` and `bootstrap/cache/` (required for caches, sessions, uploads, and views). Run the helper **as root** so it can `chown`/`chmod` (use `sudo` and enter your password when prompted—nothing is stored by the script):
+3. **Laravel permissions (`permissions.sh` via `curl`):** After the app code is in place, fix ownership and modes on `storage/` and `bootstrap/cache/` (required for caches, sessions, uploads, and views). The usual way is to download and run the script with **`curl`** on the server (needs `curl` installed—`setup.sh` / `installation.sh` already install it):
 
    ```bash
    curl -sSL https://raw.githubusercontent.com/shahjalal132/vps-setup/main/permissions.sh | sudo bash
    ```
+
+   Same one-liner with explicit flags: `-s` (silent progress), `-S` (show errors), `-L` (follow redirects).
 
    Or from a clone of this repo:
 
    ```bash
    sudo bash permissions.sh
    ```
+
+   `permissions.sh` is **independent** of `setup.sh` and `installation.sh`; use it whenever the Laravel tree exists under `/var/www/<name>`.
 
    You will be asked for the **project directory name** only (the same segment you used with `setup.sh`, e.g. `example` for `/var/www/example`). The script sets `www-data:www-data` on `storage` and `bootstrap/cache` and `ug+rwx` on those paths so PHP-FPM can write logs, sessions, and compiled views.
 
