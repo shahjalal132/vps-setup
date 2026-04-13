@@ -41,14 +41,17 @@ apt install -y curl wget git unzip software-properties-common ca-certificates ls
 echo -e "\n${CYAN}[2/8] Installing latest PHP and extensions...${NC}"
 add-apt-repository ppa:ondrej/php -y
 apt update
+# Virtual-only names on Ondrej (Noble+): ctype/json/fileinfo/tokenizer/exif/sockets come from
+# php*-common via php-cli; use php${VER}-opcache after PHP is installed.
 apt install -y \
     php-cli php-fpm \
     php-mysql php-pgsql php-sqlite3 \
     php-mbstring php-xml php-curl php-zip php-gd \
-    php-bcmath php-ctype php-json php-fileinfo php-tokenizer \
-    php-redis php-opcache php-intl php-exif php-sockets php-readline
+    php-bcmath php-redis php-intl php-readline \
+    php-imagick php-soap
 
 PHP_VERSION="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
+apt install -y "php${PHP_VERSION}-opcache"
 PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
 PHP_FPM_SOCK="/var/run/php/php${PHP_VERSION}-fpm.sock"
 

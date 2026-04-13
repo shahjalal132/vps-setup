@@ -64,12 +64,14 @@ ensure_ondrej_php_ppa() {
   fi
 }
 
+# Ondrej/sury: php-ctype, php-json, php-fileinfo, php-tokenizer, php-exif, php-sockets are
+# virtual (provided by phpX.Y-common once php-cli is installed). php-opcache is virtual;
+# install php${VER}-opcache after the default PHP version is known.
 PHP_PKGS=(
   php-cli php-fpm
   php-mysql php-pgsql php-sqlite3
   php-mbstring php-xml php-curl php-zip php-gd
-  php-bcmath php-ctype php-json php-fileinfo php-tokenizer
-  php-redis php-opcache php-intl php-exif php-sockets php-readline
+  php-bcmath php-redis php-intl php-readline
   php-imagick php-soap
 )
 
@@ -79,6 +81,18 @@ ensure_php_packages() {
   for p in "${PHP_PKGS[@]}"; do
     pkg_is_installed "$p" || missing+=("$p")
   done
+
+  local PHP_VERSION=""
+  if command -v php &>/dev/null; then
+    PHP_VERSION="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
+  fi
+
+  local opcache_pkg=""
+  if [[ -n "$PHP_VERSION" ]]; then
+    opcache_pkg="php${PHP_VERSION}-opcache"
+    pkg_is_installed "$opcache_pkg" || missing+=("$opcache_pkg")
+  fi
+
   if [[ "${#missing[@]}" -eq 0 ]]; then
     echo -e "\n${GREEN}All PHP packages already installed. Skipping.${NC}"
   else
@@ -88,8 +102,15 @@ ensure_php_packages() {
     apt-get install -y "${missing[@]}"
   fi
 
-  local PHP_VERSION
   PHP_VERSION="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
+  opcache_pkg="php${PHP_VERSION}-opcache"
+  if ! pkg_is_installed "$opcache_pkg"; then
+    echo -e "\n${CYAN}Installing ${opcache_pkg}...${NC}"
+    ensure_ondrej_php_ppa
+    apt-get update -qq
+    apt-get install -y "$opcache_pkg"
+  fi
+
   local PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
   if ! systemctl enable "$PHP_FPM_SERVICE" 2>/dev/null; then
     echo -e "${YELLOW}Warning: ${PHP_FPM_SERVICE} not found. Check PHP-FPM installation.${NC}"
