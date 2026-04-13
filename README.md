@@ -64,10 +64,70 @@ Once the script finishes:
 
    You will be asked for the **project directory name** only (the same segment you used with `setup.sh`, e.g. `example` for `/var/www/example`). The script sets `www-data:www-data` on `storage` and `bootstrap/cache` and `ug+rwx` on those paths so PHP-FPM can write logs, sessions, and compiled views.
 
-4. **Queue Workers:** Start your Laravel workers using PM2:
+4. **Queue Workers:** Start your Laravel workers using PM2.
+
+   **One-off command** (from your Laravel project root, e.g. `/var/www/example`):
+
    ```bash
+   cd /var/www/example
    pm2 start "php artisan queue:work --tries=3" --name example-worker
    ```
+
+   **Recommended: `ecosystem.config.cjs`** — keeps arguments, process count, and restarts in one file. Place it in your **Laravel app root** (same directory as `artisan`) and set `cwd` to that path:
+
+   ```javascript
+   // ecosystem.config.cjs
+   module.exports = {
+     apps: [{
+       name: 'sber-ai-worker',
+       script: 'php',
+       args: 'artisan queue:work --tries=3 --sleep=3 --timeout=60',
+       cwd: '/var/www/your-laravel-app',
+       instances: 5,
+       exec_mode: 'fork',
+       autorestart: true,
+       watch: false,
+       max_memory_restart: '512M',
+       env: {
+         NODE_ENV: 'production',
+       },
+       time: true,
+     }]
+   };
+   ```
+
+   **What each part does**
+
+   | Field | Meaning |
+   | ----- | -------- |
+   | `module.exports` | CommonJS export object PM2 reads when you run `pm2 start ecosystem.config.cjs`. |
+   | `apps` | List of processes to manage; you can define multiple workers or sites in one file. |
+   | `name` | Label in `pm2 list`, logs, and `pm2 restart sber-ai-worker`. Choose something unique per project. |
+   | `script` | Executable PM2 runs first. Here it is `php`; combined with `args`, this is equivalent to `php artisan queue:work …`. |
+   | `args` | Arguments passed to `script`. Laravel’s worker is `artisan queue:work` plus queue options (`--tries`, `--sleep`, `--timeout`, etc.). |
+   | `cwd` | **Working directory** for the process so `artisan`, `.env`, and `vendor/` resolve correctly. Must be the Laravel root (where `artisan` lives). |
+   | `instances` | How many separate worker processes PM2 starts. With `exec_mode: 'fork'`, each instance is its own OS process pulling jobs in parallel. |
+   | `exec_mode` | `'fork'` runs one Node-style “app” per instance as a forked process (right for multiple PHP workers). (`cluster` is geared toward Node HTTP servers.) |
+   | `autorestart` | If the worker exits or crashes, PM2 starts it again. |
+   | `watch` | If `true`, PM2 would restart when files change—usually **off** in production so deploys control restarts. |
+   | `max_memory_restart` | Restart the process if RSS exceeds this limit (here `512M`), which limits runaway memory growth. |
+   | `env` | Environment variables for the process. `NODE_ENV` is conventional for Node tooling; PHP/Laravel ignore it unless your code or wrappers read it. Add Laravel-related vars here if needed (e.g. `APP_ENV`). |
+   | `time` | When `true`, PM2 prefixes log lines with timestamps for easier debugging. |
+
+   **PM2 commands** (run from anywhere; config path can be absolute):
+
+   ```bash
+   pm2 start /var/www/your-laravel-app/ecosystem.config.cjs
+   pm2 status
+   pm2 logs sber-ai-worker
+   pm2 restart sber-ai-worker
+   pm2 stop sber-ai-worker
+   pm2 delete sber-ai-worker
+   pm2 save
+   sudo env PATH=$PATH pm2 startup systemd -u www-data --hp /var/www
+   ```
+
+   Use `pm2 save` after a layout you want to survive reboot; `pm2 startup` registers a systemd unit (user and home path depend on who should run the workers—often `www-data` or your deploy user).
 
 ### HTTPS (Let's Encrypt) and Nginx
 
