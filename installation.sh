@@ -229,4 +229,4 @@ ensure_wp_cli
 echo -e "\n${GREEN}====================================================${NC}"
 echo -e "${GREEN}     INSTALLATION COMPLETE                          ${NC}"
 echo -e "${GREEN}====================================================${NC}"
-echo -e "${CYAN}Next: run setup.sh or deploy.sh for vhosts and sites.${NC}\n"
+echo -e "${CYAN}Next: run setup.sh or smoke-test.sh for vhosts and sites.${NC}\n"

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Multi-site smoke-test deployer: Nginx + PHP-FPM vhost for Laravel (document root: public/)
 # or WordPress (document root: site root). Directory under /var/www is derived from the FQDN.
-# Run as root: sudo bash deploy.sh
+# Run as root: sudo bash smoke-test.sh
 
 set -euo pipefail
 
@@ -15,7 +15,7 @@ NC='\033[0m'
 # --- Header ---
 clear
 echo -e "${CYAN}====================================================${NC}"
-echo -e "${CYAN}     MULTI-SITE SMOKE TEST DEPLOY (HTTP ONLY)       ${NC}"
+echo -e "${CYAN}     MULTI-SITE SMOKE TEST (HTTP ONLY)               ${NC}"
 echo -e "${CYAN}====================================================${NC}"
 
 if [ "$EUID" -ne 0 ]; then
@@ -231,7 +231,7 @@ NGINX_CONF="/etc/nginx/sites-available/${DIR_NAME}.conf"
 
 if [[ "$PROJECT_TYPE" == "1" ]]; then
   cat <<EOF >"$NGINX_CONF"
-# Smoke / Laravel-style vhost (deploy.sh)
+# Smoke / Laravel-style vhost (smoke-test.sh)
 server {
     listen 80;
     server_name ${DOMAIN_NAME};
@@ -264,7 +264,7 @@ server {
 EOF
 else
   cat <<EOF >"$NGINX_CONF"
-# Smoke / WordPress-style vhost (deploy.sh)
+# Smoke / WordPress-style vhost (smoke-test.sh)
 server {
     listen 80;
     server_name ${DOMAIN_NAME};

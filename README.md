@@ -16,6 +16,16 @@ curl -sSL https://raw.githubusercontent.com/shahjalal132/vps-setup/main/setup.sh
 curl -sSL https://raw.githubusercontent.com/shahjalal132/vps-setup/main/installation.sh | sudo bash
 ```
 
+### Multi-site smoke test (`smoke-test.sh`)
+
+Use **`smoke-test.sh`** when you already have the stack (or ran `installation.sh`) and want an extra **HTTP-only** Nginx vhost plus a minimal `index.php` under `/var/www/…`. The script asks for a **domain** and **project type** (Laravel uses `public/` as document root; WordPress uses the site root). The directory name is derived from the FQDN (sanitized). Run as **root**:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/shahjalal132/vps-setup/main/smoke-test.sh | sudo bash
+```
+
+Or from a clone: `sudo bash smoke-test.sh`.
+
 ---
 
 ## 🛠 What this script installs
