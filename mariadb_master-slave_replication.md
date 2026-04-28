@@ -502,7 +502,67 @@ If either thread is `No`, inspect `Last_IO_Error` or `Last_SQL_Error`.
    ```
 
 2. **Dynamic `wp-config.php`**
-   - Detect domain (`pvamarkets.com` vs `pvaseller.com`) and set `WP_HOME`/`WP_SITEURL` accordingly on both nodes.
+   - Detect domain (`pvamarkets.com` vs `pvaseller.com`) and set `WP_HOME`/`WP_SITEURL` automatically on both nodes.
+
+   **Why this is needed**
+   - During normal operation and failover, the same WordPress codebase may be served under two different domains.
+   - Hardcoding one URL can cause redirect loops, mixed content, and broken admin/login URLs.
+
+   **Where to put it**
+   - Edit `wp-config.php` on both VPS nodes.
+   - Place this block **before** the line: `require_once ABSPATH . 'wp-settings.php';`
+
+   **Recommended domain detection block**
+
+   ```php
+   /**
+    * Dynamic domain detection for active/standby domains.
+    * Supports direct host header and reverse-proxy forwarded host.
+    */
+   $detected_host = '';
+
+   if (!empty($_SERVER['HTTP_X_FORWARDED_HOST'])) {
+       // If behind Cloudflare/Nginx proxy, first host in list is the client-facing host.
+       $forwarded_host = explode(',', $_SERVER['HTTP_X_FORWARDED_HOST'])[0];
+       $detected_host = trim($forwarded_host);
+   } elseif (!empty($_SERVER['HTTP_HOST'])) {
+       $detected_host = trim($_SERVER['HTTP_HOST']);
+   }
+
+   // Strip port (example: pvaseller.com:443 -> pvaseller.com)
+   $detected_host = strtolower(preg_replace('/:\d+$/', '', $detected_host));
+
+   if ($detected_host === 'pvaseller.com' || $detected_host === 'www.pvaseller.com') {
+       define('WP_HOME', 'https://pvaseller.com');
+       define('WP_SITEURL', 'https://pvaseller.com');
+   } else {
+       // Default to primary domain for all other hosts.
+       define('WP_HOME', 'https://pvamarkets.com');
+       define('WP_SITEURL', 'https://pvamarkets.com');
+   }
+   ```
+
+   **Optional hardening**
+   - Restrict unknown hosts (prevents host-header abuse):
+
+   ```php
+   $allowed_hosts = [
+       'pvamarkets.com',
+       'www.pvamarkets.com',
+       'pvaseller.com',
+       'www.pvaseller.com',
+   ];
+
+   if (!in_array($detected_host, $allowed_hosts, true)) {
+       $detected_host = 'pvamarkets.com';
+   }
+   ```
+
+   **Verification checklist**
+   - Visit `https://pvamarkets.com/wp-admin` and confirm login/admin URLs stay on `pvamarkets.com`.
+   - Visit `https://pvaseller.com/wp-admin` and confirm login/admin URLs stay on `pvaseller.com`.
+   - Clear page/cache plugin caches after applying config changes.
+   - If using reverse proxy/CDN, confirm forwarded host header is passed correctly.
 
 3. **Failover runbook**
    - Disable DNS redirect for `pvaseller.com`.
