@@ -122,79 +122,278 @@ mysqldump --default-character-set=utf8mb4 --skip-set-charset --all-databases --r
 
 ---
 
-## Part 2: The "Mirror and the Switch" Strategy
+## Part 2: Master-Slave Replication - The "Mirror and the Switch" Strategy
 
-This architecture uses a **Master-Slave (Warm Standby)** setup for high availability.
+This section provides a detailed, production-ready guide for configuring MariaDB Master-Slave replication between two VPS instances.
+The architecture implements a **warm standby** high-availability model for a WordPress site (or any MariaDB-backed application) using **asynchronous replication**.
 
-### 1. Database Replication (Master-Slave)
+When combined with file synchronization (`lsyncd`) and a dynamic `wp-config.php`, the slave becomes a fully functional, always up-to-date clone of the master.
+In case the primary VPS fails, the secondary can be promoted to master within seconds with near-zero data loss.
 
-**Main Server (VPS 1 - Master)**:
-1. Edit `/etc/mysql/mariadb.conf.d/50-server.cnf`:
-   ```ini
-   bind-address = 0.0.0.0
-   server-id = 1
-   log_bin = /var/log/mysql/mariadb-bin.log
-   binlog_do_db = pvamarkets
-   ```
-2. Create Replication User:
-   ```sql
-   GRANT REPLICATION SLAVE ON *.* TO 'replicator'@'SECONDARY_VPS_IP' IDENTIFIED BY 'StrongPassword';
-   FLUSH PRIVILEGES;
-   SHOW MASTER STATUS; -- Save the File and Position values!
-   ```
+---
 
-**Secondary Server (VPS 2 - Slave)**:
-1. Set `server-id = 2` in the config file.
-2. Connect to Master:
-   ```sql
-   CHANGE MASTER TO 
-     MASTER_HOST='MAIN_VPS_IP', 
-     MASTER_USER='replicator', 
-     MASTER_PASSWORD='StrongPassword', 
-     MASTER_LOG_FILE='[File_from_Master]', 
-     MASTER_LOG_POS=[Position_from_Master];
-   START SLAVE;
-   ```
+### 1. Architecture Overview
 
-### 2. File Sync (lsyncd)
-Install on **Main Server** to push files to the Secondary Server instantly.
+- **VPS 1 (Master)**: Handles all write operations. The live site `pvamarkets.com` points here.
+- **VPS 2 (Slave)**: Maintains a real-time, read-only copy of the database. The failover site `pvaseller.com` is served from this machine.
+- **Replication flow**:
+  Master -> binary log -> Slave I/O thread -> relay log -> Slave SQL thread -> local database.
+- **All configuration changes in this section are applied to `/etc/mysql/mariadb.conf.d/50-server.cnf`**, the primary MariaDB server configuration file on Ubuntu/Debian systems.
 
-1. `sudo apt install lsyncd`
-2. Edit `/etc/lsyncd/lsyncd.conf.lua`:
-   ```lua
-   settings {
-       logfile = "/var/log/lsyncd/lsyncd.log",
-       statusFile = "/var/log/lsyncd/lsyncd.status"
-   }
-   sync {
-       default.rsync,
-       source = "/var/www/pvamarkets.com",
-       target = "SECONDARY_VPS_IP:/var/www/pvaseller.com",
-       rsync = {
-           archive = true,
-           compress = true,
-           _extra = {"-e", "ssh -i /root/.ssh/id_rsa"}
-       }
-   }
-   ```
+**Prerequisites**
+- MariaDB successfully migrated from MySQL 8.0 on **both** VPSs (using dump-and-restore).
+- The application database `pvamarkets` exists on both servers.
+- Network connectivity: the slave must be able to reach the master on TCP port `3306`.
+- Root access to MariaDB on both servers.
 
-### 3. Dynamic `wp-config.php`
-Allows the same code to serve both domains. Update on **both** servers:
+Allow only the slave IP to connect to MariaDB on the master:
 
-```php
-// Detect the domain being used to access the site
-$http_host = $_SERVER['HTTP_HOST'];
-
-if (strpos($http_host, 'pvaseller.com') !== false) {
-    define('WP_HOME', 'https://pvaseller.com');
-    define('WP_SITEURL', 'https://pvaseller.com');
-} else {
-    define('WP_HOME', 'https://pvamarkets.com');
-    define('WP_SITEURL', 'https://pvamarkets.com');
-}
-
-define('DB_NAME', 'pvamarkets');
+```bash
+sudo ufw allow from 185.95.159.146 to any port 3306
 ```
+
+### 2. Master Configuration (VPS 1)
+
+#### 2.1 Edit MariaDB Configuration
+
+Open `/etc/mysql/mariadb.conf.d/50-server.cnf` and add/uncomment these lines under `[mysqld]`:
+
+```ini
+[mysqld]
+bind-address            = 0.0.0.0
+server-id               = 1
+log_bin                 = /var/log/mysql/mariadb-bin.log
+expire_logs_days        = 10
+binlog_do_db            = pvamarkets
+```
+
+What each directive does:
+
+| Directive | Purpose |
+|---|---|
+| `bind-address` | Listens on all network interfaces so the slave can connect remotely. |
+| `server-id` | Unique replication node ID. Master is `1`. |
+| `log_bin` | Enables binary logging and sets file location for change events. |
+| `expire_logs_days` | Rotates old binlogs (10 days) to avoid disk bloat while preserving catch-up window. |
+| `binlog_do_db` | Limits binlogging to `pvamarkets` to reduce noise and overhead. |
+
+If `/var/log/mysql` does not exist:
+
+```bash
+sudo mkdir -p /var/log/mysql
+sudo chown mysql:adm /var/log/mysql
+sudo chmod 2750 /var/log/mysql
+```
+
+#### 2.2 Restart and Verify MariaDB
+
+```bash
+sudo systemctl restart mariadb
+sudo systemctl status mariadb
+```
+
+If restart fails:
+
+```bash
+sudo journalctl -xeu mariadb.service
+```
+
+If AppArmor blocks the log path:
+
+```bash
+sudo apparmor_parser -r /etc/apparmor.d/usr.sbin.mariadbd
+sudo systemctl restart mariadb
+```
+
+#### 2.3 Confirm Binary Logging
+
+```bash
+mysql -u root -p
+```
+
+```sql
+SHOW MASTER STATUS;
+```
+
+Expected shape:
+
+```
++-----------------------+----------+--------------+------------------+
+| File                  | Position | Binlog_Do_DB | Binlog_Ignore_DB |
++-----------------------+----------+--------------+------------------+
+| mariadb-bin.000001    |      650 | pvamarkets   |                  |
++-----------------------+----------+--------------+------------------+
+```
+
+If empty, binary logging is not active. Re-check `log_bin` and MariaDB logs.
+
+#### 2.4 Create Replication User
+
+```sql
+GRANT REPLICATION SLAVE ON *.* TO 'replicator'@'185.95.159.146' IDENTIFIED BY 'StrongPassword123!';
+FLUSH PRIVILEGES;
+```
+
+Notes:
+- `REPLICATION SLAVE` is the only required privilege.
+- Restricting by slave IP improves security.
+- Use a strong password and store it securely.
+
+#### 2.5 Take a Consistent Snapshot (Optional but Recommended)
+
+1) Lock writes and capture exact coordinates:
+
+```sql
+FLUSH TABLES WITH READ LOCK;
+SHOW MASTER STATUS;
+```
+
+2) From a second terminal, dump database:
+
+```bash
+sudo mysqldump -u root -pStrongPassword123! pvamarkets > ~/pvamarkets_master_snapshot.sql
+```
+
+3) Unlock tables:
+
+```sql
+UNLOCK TABLES;
+```
+
+4) Copy dump to slave:
+
+```bash
+scp ~/pvamarkets_master_snapshot.sql user@185.95.159.146:~/
+```
+
+### 3. Slave Configuration (VPS 2)
+
+#### 3.1 Edit MariaDB Configuration
+
+On VPS 2 (`/etc/mysql/mariadb.conf.d/50-server.cnf`):
+
+```ini
+[mysqld]
+server-id               = 2
+bind-address            = 0.0.0.0
+log_bin                 = /var/log/mysql/mariadb-bin.log
+expire_logs_days        = 10
+binlog_do_db            = pvamarkets
+read_only               = 1
+```
+
+Why:
+- `server-id = 2`: must be unique.
+- `log_bin`: needed if this slave is later promoted to master.
+- `read_only = 1`: blocks accidental writes from regular users.
+
+Ensure log directory exists:
+
+```bash
+sudo mkdir -p /var/log/mysql
+sudo chown mysql:adm /var/log/mysql
+sudo chmod 2750 /var/log/mysql
+```
+
+#### 3.2 Restart MariaDB
+
+```bash
+sudo systemctl restart mariadb
+```
+
+#### 3.3 Import Initial Snapshot
+
+```bash
+sudo mysql -u root -p pvamarkets < ~/pvamarkets_master_snapshot.sql
+```
+
+If using an older dump, ensure it matches the recorded master binlog coordinates.
+
+#### 3.4 Configure Replication Link
+
+```bash
+mysql -u root -p
+```
+
+```sql
+CHANGE MASTER TO
+  MASTER_HOST='<MAIN_VPS_IP>',
+  MASTER_USER='replicator',
+  MASTER_PASSWORD='StrongPassword123!',
+  MASTER_LOG_FILE='mariadb-bin.000001',
+  MASTER_LOG_POS=650;
+```
+
+Then start replication:
+
+```sql
+START SLAVE;
+```
+
+#### 3.5 Verify Replication Health
+
+```sql
+SHOW SLAVE STATUS\G
+```
+
+Confirm:
+
+```
+Slave_IO_Running: Yes
+Slave_SQL_Running: Yes
+Seconds_Behind_Master: 0
+```
+
+If either thread is `No`, inspect `Last_IO_Error` or `Last_SQL_Error`.
+
+### 4. Troubleshooting Common Replication Issues
+
+#### 4.1 `SHOW MASTER STATUS` returns empty set
+- Cause: binary logging disabled or MariaDB not restarted.
+- Fix: validate `log_bin`, permissions, and restart service.
+
+#### 4.2 `Slave_IO_Running: Connecting` or `No`
+- Check firewall, host/user/password, and master log coordinates.
+- Test TCP: `telnet MASTER_IP 3306`
+- Test auth: `mysql -u replicator -p -h MASTER_IP`
+- If binlog is purged, resnapshot and reconfigure with fresh coordinates.
+
+#### 4.3 `Slave_SQL_Running: No`
+- Usually data conflict (e.g., duplicate key or out-of-order change).
+- Check `Last_SQL_Error`.
+- If safe and validated:
+  ```sql
+  SET GLOBAL SQL_SLAVE_SKIP_COUNTER = 1;
+  START SLAVE;
+  ```
+
+#### 4.4 Fatal error 1236
+- Means requested binlog file/position no longer exists on master.
+- Increase binlog retention and re-seed from a fresh snapshot.
+
+#### 4.5 Error 1045 (Access denied for `replicator`)
+- Re-check password and host/IP restriction in `GRANT`.
+- Run `FLUSH PRIVILEGES` on master.
+
+### 5. Next Steps in the HA Stack
+
+1. **File synchronization (`lsyncd`)**
+   - Install on master to mirror WordPress files to VPS 2 over SSH/rsync.
+
+2. **Dynamic `wp-config.php`**
+   - Detect domain (`pvamarkets.com` vs `pvaseller.com`) and set `WP_HOME`/`WP_SITEURL` accordingly on both nodes.
+
+3. **Failover runbook**
+   - Disable DNS redirect for `pvaseller.com`.
+   - Point DNS `A` record to VPS 2.
+   - Promote slave:
+     ```sql
+     STOP SLAVE;
+     SET GLOBAL read_only = 0;
+     ```
+   - Bring traffic live on standby domain.
+
+> Practice failover regularly. Replication is not a backup strategy, so keep independent scheduled backups.
 
 ---
 
