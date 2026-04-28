@@ -378,7 +378,128 @@ If either thread is `No`, inspect `Last_IO_Error` or `Last_SQL_Error`.
 ### 5. Next Steps in the HA Stack
 
 1. **File synchronization (`lsyncd`)**
-   - Install on master to mirror WordPress files to VPS 2 over SSH/rsync.
+   - Use `lsyncd` on VPS 1 (master) to push WordPress file changes to VPS 2 in near real time.
+   - This keeps media uploads, plugin changes, and theme updates aligned with database replication.
+
+   **Step 1: Install packages on VPS 1**
+
+   ```bash
+   sudo apt update
+   sudo apt install -y lsyncd rsync openssh-client
+   ```
+
+   **Step 2: Prepare SSH key-based authentication (passwordless)**
+
+   Generate key on VPS 1 (if not already present):
+
+   ```bash
+   sudo mkdir -p /root/.ssh
+   sudo chmod 700 /root/.ssh
+   sudo ssh-keygen -t ed25519 -f /root/.ssh/id_lsyncd -N ""
+   ```
+
+   Copy key to VPS 2:
+
+   ```bash
+   sudo ssh-copy-id -i /root/.ssh/id_lsyncd.pub user@185.95.159.146
+   ```
+
+   Test access:
+
+   ```bash
+   sudo ssh -i /root/.ssh/id_lsyncd user@185.95.159.146 "echo SSH_OK"
+   ```
+
+   **Step 3: Ensure target directory exists on VPS 2**
+
+   ```bash
+   sudo mkdir -p /var/www/pvaseller.com
+   sudo chown -R www-data:www-data /var/www/pvaseller.com
+   ```
+
+   **Step 4: Create `lsyncd` config on VPS 1**
+
+   Edit `/etc/lsyncd/lsyncd.conf.lua`:
+
+   ```lua
+   settings {
+     logfile      = "/var/log/lsyncd/lsyncd.log",
+     statusFile   = "/var/log/lsyncd/lsyncd.status",
+     statusInterval = 10,
+     nodaemon     = false,
+     insist       = true
+   }
+
+   sync {
+     default.rsyncssh,
+     source = "/var/www/pvamarkets.com/",
+     host   = "185.95.159.146",
+     targetdir = "/var/www/pvaseller.com/",
+     delay  = 2,
+     delete = true,
+     rsync = {
+       archive  = true,
+       compress = true,
+       verbose  = true,
+       _extra = {
+         "--omit-dir-times",
+         "--no-perms",
+         "--no-owner",
+         "--no-group"
+       }
+     },
+     ssh = {
+       port = 22,
+       identityFile = "/root/.ssh/id_lsyncd",
+       options = {
+         "StrictHostKeyChecking=accept-new"
+       }
+     },
+     exclude = {
+       ".git/",
+       "wp-content/cache/",
+       "wp-content/litespeed/",
+       "wp-content/wflogs/",
+       "*.log"
+     }
+   }
+   ```
+
+   Notes:
+   - `delay = 2` batches rapid file events for efficiency.
+   - `delete = true` ensures deletions on master are mirrored to slave.
+   - `exclude` avoids syncing cache/runtime files that should be rebuilt locally.
+
+   **Step 5: Create log directory and start service**
+
+   ```bash
+   sudo mkdir -p /var/log/lsyncd
+   sudo chown root:adm /var/log/lsyncd
+   sudo chmod 755 /var/log/lsyncd
+   sudo systemctl enable --now lsyncd
+   sudo systemctl status lsyncd
+   ```
+
+   **Step 6: Validate sync end-to-end**
+
+   Create a test file on VPS 1:
+
+   ```bash
+   sudo -u www-data touch /var/www/pvamarkets.com/wp-content/uploads/lsyncd-test.txt
+   ```
+
+   Check on VPS 2:
+
+   ```bash
+   ssh -i /root/.ssh/id_lsyncd user@185.95.159.146 "ls -l /var/www/pvaseller.com/wp-content/uploads/lsyncd-test.txt"
+   ```
+
+   Check logs if needed:
+
+   ```bash
+   sudo journalctl -u lsyncd -f
+   sudo tail -f /var/log/lsyncd/lsyncd.log
+   ```
 
 2. **Dynamic `wp-config.php`**
    - Detect domain (`pvamarkets.com` vs `pvaseller.com`) and set `WP_HOME`/`WP_SITEURL` accordingly on both nodes.
