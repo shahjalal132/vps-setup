@@ -62,7 +62,57 @@ sudo systemctl enable mariadb
    sudo mysql -u root -p -e "FLUSH PRIVILEGES;"
    ```
 
-### Phase 5: Verification (WordPress)
+### Phase 5: Troubleshooting Collation Errors (`utf8mb4_0900_ai_ci`)
+
+As a DevOps engineer, you might see this error frequently when migrating from **MySQL 8.0** to **MariaDB**.
+
+#### The Reason
+The collation `utf8mb4_0900_ai_ci` is a new default specific to **MySQL 8.0**. MariaDB does not recognize it because it uses a different internal logic for sorting. When you try to import a MySQL 8.0 dump into MariaDB, it fails because it doesn't know what `0900_ai_ci` means.
+
+#### The Professional Fix
+We need to "downgrade" the collation in your SQL dump file to one that MariaDB understands, which is `utf8mb4_unicode_ci`.
+
+Run these two `sed` commands to find and replace the problematic strings in your SQL file (`full_backup.sql`) before importing:
+
+```bash
+# 1. Replace the 0900 collation with the standard unicode collation
+sed -i 's/utf8mb4_0900_ai_ci/utf8mb4_unicode_ci/g' ~/db_migration/full_backup.sql
+
+# 2. Replace any remaining references to general utf8mb4 collation compatibility
+sed -i 's/utf8mb4_general_ci/utf8mb4_unicode_ci/g' ~/db_migration/full_backup.sql
+```
+
+#### Why `utf8mb4_unicode_ci`?
+For a WordPress site, `utf8mb4_unicode_ci` is the safest and most compatible choice. It supports emojis and all international characters perfectly in MariaDB.
+
+#### Step-by-Step Recovery Flow
+
+1.  **Run the Fix Command:**
+    ```bash
+    sed -i 's/utf8mb4_0900_ai_ci/utf8mb4_unicode_ci/g' ~/db_migration/full_backup.sql
+    ```
+
+2.  **Try the Import again:**
+    ```bash
+    sudo mysql -u root -p < ~/db_migration/full_backup.sql
+    ```
+
+3.  **If it still gives a similar error (e.g., about `utf8mb4_0900_nopad_ai_ci`):**
+    Run this broader replace command:
+    ```bash
+    sed -i 's/utf8mb4_0900_[^ ]*/utf8mb4_unicode_ci/g' ~/db_migration/full_backup.sql
+    ```
+
+#### Pro DevOps Tip: Prevention
+Next time you create a dump from a MySQL 8 server to move to MariaDB, use this flag to avoid this issue entirely:
+
+```bash
+mysqldump --default-character-set=utf8mb4 --skip-set-charset --all-databases --routines --triggers --events -u root -p > ~/db_migration/full_backup.sql
+```
+
+---
+
+### Phase 6: Verification (WordPress)
 1. **Status Check**: `sudo systemctl status mariadb`
 2. **Compatibility**: PHP 8.3 `php-mysql` extension works for both.
 3. **Database Connection Check**: If "Error Establishing a Database Connection" appears on `pvamarkets.com`, reset the user password:
