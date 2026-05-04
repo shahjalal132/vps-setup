@@ -50,29 +50,76 @@ get_distro_codename() {
   fi
 }
 
-ondrej_php_ppa_release_available() {
+# Prints HTTP status only (200 = PPA has a Release; 404/403 = unsupported suite; 000 = probe failed).
+ondrej_php_ppa_release_http_code() {
   local codename="$1"
-  [[ -n "$codename" ]] || return 1
-  local url="https://ppa.launchpadcontent.net/ondrej/php/ubuntu/dists/${codename}/Release"
-  local code
+  local url code
+  if [[ -z "$codename" ]]; then
+    echo "000"
+    return
+  fi
+  url="https://ppa.launchpadcontent.net/ondrej/php/ubuntu/dists/${codename}/Release"
   code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 20 -I "$url" 2>/dev/null || echo 000)"
-  [[ "$code" == "200" ]]
+  echo "$code"
 }
 
-remove_ondrej_php_ppa_sources() {
+ondrej_php_ppa_release_available() {
+  local codename="$1"
+  [[ "$(ondrej_php_ppa_release_http_code "$codename")" == "200" ]]
+}
+
+# Remove only list/source files; does not run apt-get update.
+remove_ondrej_php_ppa_source_files_only() {
   local f removed=0
   shopt -s nullglob
   for f in /etc/apt/sources.list.d/*; do
     [[ -f "$f" ]] || continue
     if grep -qE 'ppa\.launchpadcontent\.net/ondrej/php|ppa:ondrej/php' "$f" 2>/dev/null; then
-      echo -e "${YELLOW}Removing Ondrej PHP PPA source (not usable on this release): ${f}${NC}"
+      echo -e "${YELLOW}Removing Ondrej PHP PPA apt source: ${f}${NC}"
       rm -f "$f"
       removed=1
     fi
   done
   shopt -u nullglob
-  [[ "$removed" -eq 1 ]] || return 0
+  [[ "$removed" -eq 1 ]]
+}
+
+remove_ondrej_php_ppa_sources() {
+  remove_ondrej_php_ppa_source_files_only || return 0
   apt-get update -qq
+}
+
+# Run before any apt-get update so a leftover broken Ondrej entry cannot abort the script.
+fix_broken_ondrej_php_before_apt() {
+  local codename code
+  codename="$(get_distro_codename)"
+  [[ -n "$codename" ]] || return 0
+  ondrej_php_ppa_present || return 0
+  code="$(ondrej_php_ppa_release_http_code "$codename")"
+  if [[ "$code" == "404" || "$code" == "403" ]]; then
+    echo -e "\n${YELLOW}Ondrej PHP PPA has no Release for '${codename}' (HTTP ${code}). Removing those apt sources so apt can update.${NC}"
+    remove_ondrej_php_ppa_source_files_only || true
+  fi
+}
+
+# If apt still fails (e.g. probe timed out but the PPA line is invalid), strip Ondrej PHP and retry once.
+apt_get_update_with_ondrej_recovery() {
+  local out ec
+  set +e
+  out="$(apt-get update -qq 2>&1)"
+  ec=$?
+  set -e
+  if [[ "$ec" -eq 0 ]]; then
+    return 0
+  fi
+  if grep -qiE 'ondrej/php|ppa\.launchpadcontent\.net/ondrej/php' <<<"$out"; then
+    echo -e "${YELLOW}apt update failed due to Ondrej PHP PPA. Removing those sources and retrying apt update.${NC}"
+    remove_ondrej_php_ppa_source_files_only || true
+    apt-get update -qq
+    return
+  fi
+  echo "$out" >&2
+  return "$ec"
 }
 
 ondrej_php_ppa_present() {
@@ -90,14 +137,20 @@ ondrej_php_ppa_present() {
 }
 
 ensure_ondrej_php_ppa() {
-  local codename
+  local codename code
   codename="$(get_distro_codename)"
+  code="$(ondrej_php_ppa_release_http_code "$codename")"
 
-  if ! ondrej_php_ppa_release_available "$codename"; then
-    echo -e "\n${YELLOW}Ondrej PHP PPA has no Release for '${codename:-unknown}'. Using distribution PHP packages instead.${NC}"
+  if [[ "$code" == "404" || "$code" == "403" ]]; then
+    echo -e "\n${YELLOW}Ondrej PHP PPA has no Release for '${codename:-unknown}' (HTTP ${code}). Using distribution PHP packages instead.${NC}"
     if ondrej_php_ppa_present; then
       remove_ondrej_php_ppa_sources
     fi
+    return 0
+  fi
+
+  if [[ "$code" != "200" ]]; then
+    echo -e "\n${YELLOW}Could not verify Ondrej PHP PPA (HTTP ${code:-unknown}). Skipping PPA add; using distribution PHP if packages are missing.${NC}"
     return 0
   fi
 
@@ -261,8 +314,11 @@ ensure_wp_cli() {
 }
 
 # --- System update / upgrade (upgrade only; not dist-upgrade) ---
+echo -e "\n${CYAN}[0] Prune broken Ondrej PHP PPA (if any) so apt can run${NC}"
+fix_broken_ondrej_php_before_apt
+
 echo -e "\n${CYAN}[1] apt-get update && apt-get upgrade -y${NC}"
-apt-get update -qq
+apt_get_update_with_ondrej_recovery
 apt-get upgrade -y
 
 ensure_apt_base_tools
