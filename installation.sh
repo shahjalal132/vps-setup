@@ -40,18 +40,67 @@ ensure_apt_base_tools() {
   fi
 }
 
+# Ondrej PPA only publishes for select Ubuntu releases; probing avoids broken apt on
+# newer codenames (e.g. resolute) where Launchpad has no Release file yet.
+get_distro_codename() {
+  if [[ -f /etc/os-release ]]; then
+    # shellcheck source=/dev/null
+    . /etc/os-release
+    echo "${VERSION_CODENAME:-}"
+  fi
+}
+
+ondrej_php_ppa_release_available() {
+  local codename="$1"
+  [[ -n "$codename" ]] || return 1
+  local url="https://ppa.launchpadcontent.net/ondrej/php/ubuntu/dists/${codename}/Release"
+  local code
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 20 -I "$url" 2>/dev/null || echo 000)"
+  [[ "$code" == "200" ]]
+}
+
+remove_ondrej_php_ppa_sources() {
+  local f removed=0
+  shopt -s nullglob
+  for f in /etc/apt/sources.list.d/*; do
+    [[ -f "$f" ]] || continue
+    if grep -qE 'ppa\.launchpadcontent\.net/ondrej/php|ppa:ondrej/php' "$f" 2>/dev/null; then
+      echo -e "${YELLOW}Removing Ondrej PHP PPA source (not usable on this release): ${f}${NC}"
+      rm -f "$f"
+      removed=1
+    fi
+  done
+  shopt -u nullglob
+  [[ "$removed" -eq 1 ]] || return 0
+  apt-get update -qq
+}
+
 ondrej_php_ppa_present() {
   local f
-  for f in /etc/apt/sources.list.d/*.list; do
+  shopt -s nullglob
+  for f in /etc/apt/sources.list.d/*; do
     [[ -f "$f" ]] || continue
-    if grep -qE 'ppa:ondrej/php|ondrej.*php' "$f" 2>/dev/null; then
+    if grep -qE 'ppa\.launchpadcontent\.net/ondrej/php|ppa:ondrej/php' "$f" 2>/dev/null; then
+      shopt -u nullglob
       return 0
     fi
   done
+  shopt -u nullglob
   return 1
 }
 
 ensure_ondrej_php_ppa() {
+  local codename
+  codename="$(get_distro_codename)"
+
+  if ! ondrej_php_ppa_release_available "$codename"; then
+    echo -e "\n${YELLOW}Ondrej PHP PPA has no Release for '${codename:-unknown}'. Using distribution PHP packages instead.${NC}"
+    if ondrej_php_ppa_present; then
+      remove_ondrej_php_ppa_sources
+    fi
+    return 0
+  fi
+
   if ondrej_php_ppa_present; then
     echo -e "\n${GREEN}Ondrej PHP PPA already configured. Skipping.${NC}"
     return 0
