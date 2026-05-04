@@ -116,12 +116,6 @@ ensure_php_stack() {
   fi
 
   PHP_VERSION="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
-  local opc="php${PHP_VERSION}-opcache"
-  if ! pkg_is_installed "$opc"; then
-    echo -e "\n${CYAN}Installing ${opc}...${NC}"
-    apt-get update -qq
-    apt-get install -y "$opc"
-  fi
 
   PHP_FPM_SERVICE="php${PHP_VERSION}-fpm"
   PHP_FPM_SOCK=$(php_fpm_sock_for_version "$PHP_VERSION")

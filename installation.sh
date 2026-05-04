@@ -166,9 +166,9 @@ ensure_ondrej_php_ppa() {
   fi
 }
 
-# Ondrej/sury: php-ctype, php-json, php-fileinfo, php-tokenizer, php-exif, php-sockets are
-# virtual (provided by phpX.Y-common once php-cli is installed). Ubuntu may ship OPcache
-# inside php-cli/php-common with no separate phpX.Y-opcache package — handle that below.
+# Ondrej/sury: ctype/json/fileinfo/tokenizer/exif/sockets are virtual (from php*-common).
+# Do not install phpX.Y-opcache here: many Ubuntu builds embed OPcache in php-cli with no
+# separate package, and apt recommends can still pull a non-existent versioned opcache name.
 PHP_PKGS=(
   php-cli php-fpm
   php-mysql php-pgsql php-sqlite3
@@ -177,50 +177,21 @@ PHP_PKGS=(
   php-imagick php-soap
 )
 
-php_opcache_runtime_ok() {
-  command -v php &>/dev/null || return 1
-  php -r 'exit(extension_loaded("Zend OPcache") || extension_loaded("opcache") ? 0 : 1);' 2>/dev/null
-}
-
-# Installs a distro opcache package only if needed; never aborts the script on missing package names.
-ensure_php_opcache_for_version() {
-  local PHP_VERSION="$1"
-  local opcache_pkg="php${PHP_VERSION}-opcache"
-
-  if php_opcache_runtime_ok; then
-    echo -e "\n${GREEN}PHP OPcache already available (no separate ${opcache_pkg} needed).${NC}"
-    return 0
-  fi
-  if pkg_is_installed "$opcache_pkg"; then
-    return 0
-  fi
-
-  echo -e "\n${CYAN}Ensuring PHP OPcache (${opcache_pkg} or php-opcache)...${NC}"
-  ensure_ondrej_php_ppa
-  apt-get update -qq
-
-  set +e
-  if apt-cache --quiet=0 show "$opcache_pkg" &>/dev/null; then
-    apt-get install -y "$opcache_pkg"
-  fi
-  if ! php_opcache_runtime_ok && apt-cache --quiet=0 show php-opcache &>/dev/null; then
-    apt-get install -y php-opcache
-  fi
-  set -e
-
-  if php_opcache_runtime_ok; then
-    return 0
-  fi
-  echo -e "${YELLOW}Warning: could not install a separate OPcache package; if PHP was built with OPcache, you are fine (check: php -v).${NC}"
-  return 0
-}
-
 ensure_php_packages() {
-  local missing=()
+  local missing=() safe=()
   local p
   for p in "${PHP_PKGS[@]}"; do
     pkg_is_installed "$p" || missing+=("$p")
   done
+
+  for p in "${missing[@]}"; do
+    if [[ "$p" == *opcache* ]]; then
+      echo -e "${YELLOW}Skipping opcache package '${p}' (not installed by this script; use distro PHP / php.ini if needed).${NC}"
+      continue
+    fi
+    safe+=("$p")
+  done
+  missing=("${safe[@]}")
 
   if [[ "${#missing[@]}" -eq 0 ]]; then
     echo -e "\n${GREEN}All PHP packages already installed. Skipping.${NC}"
@@ -228,16 +199,12 @@ ensure_php_packages() {
     echo -e "\n${CYAN}Installing PHP packages (${#missing[@]} missing)...${NC}"
     ensure_ondrej_php_ppa
     apt-get update -qq
-    apt-get install -y "${missing[@]}"
+    apt-get install -y --no-install-recommends "${missing[@]}"
   fi
 
   local PHP_VERSION
   PHP_VERSION="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || true)"
   [[ -n "$PHP_VERSION" ]] || PHP_VERSION=""
-
-  if [[ -n "$PHP_VERSION" ]]; then
-    ensure_php_opcache_for_version "$PHP_VERSION"
-  fi
 
   if [[ -z "$PHP_VERSION" ]] && command -v php &>/dev/null; then
     PHP_VERSION="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
