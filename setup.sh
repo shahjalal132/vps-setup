@@ -19,15 +19,46 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+# Web root under /var/www/<fqdn-with-dots>: lowercase FQDN, dots and hyphens preserved
+sanitize_domain_to_dir() {
+  local s
+  s=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+  s=$(echo "$s" | sed -e 's/[^a-z0-9.-]\+/_/g' -e 's/^_//' -e 's/_$//')
+  echo "$s"
+}
+
+validate_domain() {
+  local d=$1
+  if [[ -z "$d" ]]; then
+    return 1
+  fi
+  if [[ "$d" =~ [[:space:]] ]]; then
+    return 1
+  fi
+  if [[ ! "$d" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$ ]]; then
+    return 1
+  fi
+  return 0
+}
+
 # --- Capture User Inputs ---
 exec 3< /dev/tty
 echo -e "${YELLOW}Step 1: Configuration${NC}"
-read -u 3 -p "Enter project directory name (e.g., example): " DIR_NAME
-read -u 3 -p "Enter primary domain (e.g., domain.example.com): " DOMAIN_NAME
+read -u 3 -p "Enter primary domain (e.g., staging.example.com): " DOMAIN_NAME
 exec 3<&-
 
-if [[ -z "$DIR_NAME" || -z "$DOMAIN_NAME" ]]; then
-    echo -e "${RED}Error: Inputs cannot be empty.${NC}"
+if [[ -z "$DOMAIN_NAME" ]]; then
+    echo -e "${RED}Error: Domain cannot be empty.${NC}"
+    exit 1
+fi
+if ! validate_domain "$DOMAIN_NAME"; then
+    echo -e "${RED}Error: invalid domain (use a hostname like staging.example.com).${NC}"
+    exit 1
+fi
+
+DIR_NAME=$(sanitize_domain_to_dir "$DOMAIN_NAME")
+if [[ -z "$DIR_NAME" ]]; then
+    echo -e "${RED}Error: could not derive directory name from domain.${NC}"
     exit 1
 fi
 
@@ -122,7 +153,7 @@ echo -e "\n${CYAN}[8/8] Configuring Nginx...${NC}"
 rm -f /etc/nginx/sites-enabled/sites-available
 rm -f /etc/nginx/sites-enabled/default
 
-NGINX_CONF="/etc/nginx/sites-available/$DOMAIN_NAME"
+NGINX_CONF="/etc/nginx/sites-available/${DIR_NAME}.conf"
 
 cat <<EOF > "$NGINX_CONF"
 server {

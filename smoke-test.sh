@@ -25,11 +25,12 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 
-# Derive a stable directory name from FQDN: lowercase, non-alphanumeric -> single underscore
+# Derive web root directory name from FQDN: lowercase, keep dots and hyphens;
+# any other non-alphanumeric run -> single underscore (slashes/spaces etc.)
 sanitize_domain_to_dir() {
   local s
   s=$(echo "$1" | tr '[:upper:]' '[:lower:]')
-  s=$(echo "$s" | sed -e 's/[^a-z0-9]\+/_/g' -e 's/^_//' -e 's/_$//')
+  s=$(echo "$s" | sed -e 's/[^a-z0-9.-]\+/_/g' -e 's/^_//' -e 's/_$//')
   echo "$s"
 }
 
