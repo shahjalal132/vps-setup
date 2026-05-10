@@ -83,11 +83,16 @@ apply_wordpress_permissions() {
   fi
 
   echo -e "\n${CYAN}Applying WordPress (Nginx) ownership and permissions...${NC}"
+  echo -e "${YELLOW}(Large trees: chown and chmod can take several minutes; this is normal.)${NC}"
 
+  echo -e "${CYAN}→${NC} chown -R www-data:www-data …"
   chown -R www-data:www-data "$APP_ROOT"
 
-  find "$APP_ROOT" -type d -exec chmod 755 {} \;
-  find "$APP_ROOT" -type f -exec chmod 644 {} \;
+  # Batch chmod ({} +); one chmod per file (\;) is extremely slow on big sites.
+  echo -e "${CYAN}→${NC} directories → 755 …"
+  find "$APP_ROOT" -type d -exec chmod 755 {} +
+  echo -e "${CYAN}→${NC} files → 644 …"
+  find "$APP_ROOT" -type f -exec chmod 644 {} +
 
   if [[ -f "$APP_ROOT/wp-config.php" ]]; then
     chmod 640 "$APP_ROOT/wp-config.php"
@@ -97,13 +102,16 @@ apply_wordpress_permissions() {
   fi
 
   if [[ -d "$APP_ROOT/wp-content/uploads" ]]; then
+    echo -e "${CYAN}→${NC} wp-content/uploads → 775 + setgid on dirs …"
     chmod -R 775 "$APP_ROOT/wp-content/uploads"
-    find "$APP_ROOT/wp-content/uploads" -type d -exec chmod 2775 {} \;
+    find "$APP_ROOT/wp-content/uploads" -type d -exec chmod 2775 {} +
   fi
   if [[ -d "$APP_ROOT/wp-content/cache" ]]; then
+    echo -e "${CYAN}→${NC} wp-content/cache → 775 …"
     chmod -R 775 "$APP_ROOT/wp-content/cache"
   fi
   if [[ -d "$APP_ROOT/wp-content/litespeed" ]]; then
+    echo -e "${CYAN}→${NC} wp-content/litespeed → 775 …"
     chmod -R 775 "$APP_ROOT/wp-content/litespeed"
   fi
 
