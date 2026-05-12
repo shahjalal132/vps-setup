@@ -22,6 +22,20 @@ echo -e "${CYAN}====================================================${NC}"
 echo -e "${CYAN}     VPS STACK INSTALLATION (non-interactive)       ${NC}"
 echo -e "${CYAN}====================================================${NC}"
 
+echo -e "\n${CYAN}Choose your database:${NC}"
+echo -e "  ${YELLOW}1${NC}) MySQL"
+echo -e "  ${YELLOW}2${NC}) PostgreSQL"
+echo -e "  ${YELLOW}3${NC}) MariaDB"
+while true; do
+  read -rp "Enter your choice [1-3]: " DB_CHOICE
+  case "$DB_CHOICE" in
+    1) DB_ENGINE="mysql";      echo -e "${GREEN}Selected: MySQL${NC}";      break ;;
+    2) DB_ENGINE="postgresql"; echo -e "${GREEN}Selected: PostgreSQL${NC}"; break ;;
+    3) DB_ENGINE="mariadb";    echo -e "${GREEN}Selected: MariaDB${NC}";    break ;;
+    *) echo -e "${RED}Invalid choice. Please enter 1, 2, or 3.${NC}" ;;
+  esac
+done
+
 pkg_is_installed() {
   dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "ok installed"
 }
@@ -240,6 +254,30 @@ ensure_mysql() {
   systemctl enable mysql
 }
 
+ensure_postgresql() {
+  if command -v psql &>/dev/null || pkg_is_installed postgresql; then
+    echo -e "\n${GREEN}PostgreSQL already present. Skipping.${NC}"
+    systemctl enable postgresql 2>/dev/null || true
+    return 0
+  fi
+  echo -e "\n${CYAN}Installing PostgreSQL...${NC}"
+  apt-get update -qq
+  apt-get install -y postgresql postgresql-contrib
+  systemctl enable postgresql
+}
+
+ensure_mariadb() {
+  if pkg_is_installed mariadb-server; then
+    echo -e "\n${GREEN}MariaDB server already present. Skipping.${NC}"
+    systemctl enable mariadb 2>/dev/null || true
+    return 0
+  fi
+  echo -e "\n${CYAN}Installing MariaDB server...${NC}"
+  apt-get update -qq
+  apt-get install -y mariadb-server
+  systemctl enable mariadb
+}
+
 ensure_redis() {
   if [[ -f /usr/bin/redis-server ]] || pkg_is_installed redis-server; then
     echo -e "\n${GREEN}Redis already present. Skipping.${NC}"
@@ -321,7 +359,11 @@ apt-get upgrade -y
 ensure_apt_base_tools
 ensure_php_packages
 ensure_nginx
-ensure_mysql
+case "$DB_ENGINE" in
+  mysql)      ensure_mysql ;;
+  postgresql) ensure_postgresql ;;
+  mariadb)    ensure_mariadb ;;
+esac
 ensure_redis
 ensure_composer
 ensure_node_pm2
