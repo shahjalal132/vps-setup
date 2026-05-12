@@ -180,6 +180,15 @@ fi
 
 WEB_ROOT="/var/www/${DIR_NAME}"
 
+# Apex + www: Certbot's nginx plugin matches every name on the cert; listing only
+# the apex breaks install when the certificate includes www (or vice versa).
+if [[ "${DOMAIN_NAME}" == www.* ]]; then
+  DOMAIN_APEX="${DOMAIN_NAME#www.}"
+  SERVER_NAMES="${DOMAIN_NAME} ${DOMAIN_APEX}"
+else
+  SERVER_NAMES="${DOMAIN_NAME} www.${DOMAIN_NAME}"
+fi
+
 # --- Dependencies (minimal for HTTP + PHP smoke) ---
 ensure_apt_base_tools
 ensure_nginx
@@ -218,7 +227,7 @@ chown -R www-data:www-data "$WEB_ROOT"
 chmod -R 775 "$WEB_ROOT"
 
 # --- Nginx ---
-# Config file name uses DIR_NAME (filesystem-safe); server_name is the FQDN only
+# Config file name uses DIR_NAME (filesystem-safe); server_name lists apex + www for Certbot
 rm -f /etc/nginx/sites-enabled/sites-available
 rm -f /etc/nginx/sites-enabled/default
 
@@ -229,7 +238,7 @@ if [[ "$PROJECT_TYPE" == "1" ]]; then
 # Smoke / Laravel-style vhost (smoke-test.sh)
 server {
     listen 80;
-    server_name ${DOMAIN_NAME};
+    server_name ${SERVER_NAMES};
 
     root ${WEB_ROOT}/public;
 
@@ -258,11 +267,10 @@ server {
 }
 EOF
 else
-  cat <<EOF >"$NGINX_CONF"
-# Smoke / WordPress-style vhost (smoke-test.sh)
+  cat <<EOF >"$NGINX_CONF"# Smoke / WordPress-style vhost (smoke-test.sh)
 server {
     listen 80;
-    server_name ${DOMAIN_NAME};
+    server_name ${SERVER_NAMES};
 
     root ${WEB_ROOT};
 
