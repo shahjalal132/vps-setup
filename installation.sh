@@ -27,7 +27,7 @@ echo -e "  ${YELLOW}1${NC}) MySQL"
 echo -e "  ${YELLOW}2${NC}) PostgreSQL"
 echo -e "  ${YELLOW}3${NC}) MariaDB"
 while true; do
-  read -rp "Enter your choice [1-3]: " DB_CHOICE
+  read -rp "Enter your choice [1-3]: " DB_CHOICE </dev/tty
   case "$DB_CHOICE" in
     1) DB_ENGINE="mysql";      echo -e "${GREEN}Selected: MySQL${NC}";      break ;;
     2) DB_ENGINE="postgresql"; echo -e "${GREEN}Selected: PostgreSQL${NC}"; break ;;
