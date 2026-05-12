@@ -22,19 +22,62 @@ echo -e "${CYAN}====================================================${NC}"
 echo -e "${CYAN}     VPS STACK INSTALLATION (non-interactive)       ${NC}"
 echo -e "${CYAN}====================================================${NC}"
 
-echo -e "\n${CYAN}Choose your database:${NC}"
-echo -e "  ${YELLOW}1${NC}) MySQL"
-echo -e "  ${YELLOW}2${NC}) PostgreSQL"
-echo -e "  ${YELLOW}3${NC}) MariaDB"
-while true; do
-  read -rp "Enter your choice [1-3]: " DB_CHOICE </dev/tty
-  case "$DB_CHOICE" in
-    1) DB_ENGINE="mysql";      echo -e "${GREEN}Selected: MySQL${NC}";      break ;;
-    2) DB_ENGINE="postgresql"; echo -e "${GREEN}Selected: PostgreSQL${NC}"; break ;;
-    3) DB_ENGINE="mariadb";    echo -e "${GREEN}Selected: MariaDB${NC}";    break ;;
-    *) echo -e "${RED}Invalid choice. Please enter 1, 2, or 3.${NC}" ;;
-  esac
-done
+# Interactive prompt needs a real TTY. `curl ... | sudo bash` leaves stdin on the pipe;
+# `/dev/tty` may be missing or not a terminal under sudo/SSH, so `read` can return empty
+# in a tight loop. Prefer: download then `sudo bash installation.sh`, or set VPS_DB non-interactively.
+choose_database_engine() {
+  local raw="${VPS_DB:-}"
+  raw="${raw//[[:space:]]/}"
+
+  if [[ -n "$raw" ]]; then
+    case "${raw,,}" in
+      1|mysql)      DB_ENGINE="mysql";      echo -e "${GREEN}Using VPS_DB: MySQL${NC}";      return 0 ;;
+      2|postgresql|postgres) DB_ENGINE="postgresql"; echo -e "${GREEN}Using VPS_DB: PostgreSQL${NC}"; return 0 ;;
+      3|mariadb)    DB_ENGINE="mariadb";    echo -e "${GREEN}Using VPS_DB: MariaDB${NC}";    return 0 ;;
+      *)
+        echo -e "${RED}Invalid VPS_DB='${VPS_DB}'. Use 1|mysql, 2|postgresql, or 3|mariadb.${NC}" >&2
+        exit 1
+        ;;
+    esac
+  fi
+
+  # Use a dedicated fd: stdin may be the curl pipe when this script is piped into bash.
+  if ! exec 3</dev/tty 2>/dev/null || ! [[ -t 3 ]]; then
+    echo -e "\n${RED}No interactive terminal for database selection.${NC}" >&2
+    echo -e "${YELLOW}Use one of:${NC}" >&2
+    echo "  • curl -fsSL <URL> -o installation.sh && sudo bash installation.sh" >&2
+    echo "  • curl -fsSL <URL> | sudo VPS_DB=1 bash   # 1=MySQL 2=PostgreSQL 3=MariaDB" >&2
+    echo "  • sudo VPS_DB=1 bash installation.sh" >&2
+    exit 1
+  fi
+
+  echo -e "\n${CYAN}Choose your database:${NC}"
+  echo -e "  ${YELLOW}1${NC}) MySQL"
+  echo -e "  ${YELLOW}2${NC}) PostgreSQL"
+  echo -e "  ${YELLOW}3${NC}) MariaDB"
+  while true; do
+    local line
+    if ! IFS= read -r -u 3 -p "Enter your choice [1-3]: " line; then
+      echo -e "\n${RED}Could not read choice (EOF or input error).${NC}" >&2
+      exec 3<&-
+      exit 1
+    fi
+    DB_CHOICE="${line//[[:space:]]/}"
+    if [[ -z "$DB_CHOICE" ]]; then
+      echo -e "${RED}Empty choice. Enter 1, 2, or 3.${NC}" >&2
+      continue
+    fi
+    case "$DB_CHOICE" in
+      1) DB_ENGINE="mysql";      echo -e "${GREEN}Selected: MySQL${NC}";      break ;;
+      2) DB_ENGINE="postgresql"; echo -e "${GREEN}Selected: PostgreSQL${NC}"; break ;;
+      3) DB_ENGINE="mariadb";    echo -e "${GREEN}Selected: MariaDB${NC}";    break ;;
+      *) echo -e "${RED}Invalid choice. Please enter 1, 2, or 3.${NC}" ;;
+    esac
+  done
+  exec 3<&-
+}
+
+choose_database_engine
 
 pkg_is_installed() {
   dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "ok installed"
