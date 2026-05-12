@@ -413,6 +413,122 @@ ensure_wp_cli() {
   echo -e "${GREEN}WP-CLI installed at /usr/local/bin/wp${NC}"
 }
 
+# Run as root via sudo, so write the per-user tmux config under $SUDO_USER's $HOME
+# (falling back to root). Owner/group are restored to that user so tmux can read it.
+ensure_tmux() {
+  if pkg_is_installed tmux; then
+    echo -e "\n${GREEN}tmux already installed. Skipping apt install.${NC}"
+  else
+    echo -e "\n${CYAN}Installing tmux...${NC}"
+    apt-get update -qq
+    apt-get install -y tmux
+  fi
+
+  local target_user target_home target_group
+  target_user="${SUDO_USER:-root}"
+  if ! target_home="$(getent passwd "$target_user" | cut -d: -f6)" || [[ -z "$target_home" ]]; then
+    target_home="$HOME"
+  fi
+  target_group="$(id -gn "$target_user" 2>/dev/null || echo "$target_user")"
+
+  local tmux_conf="${target_home}/.tmux.conf"
+  echo -e "${CYAN}Writing tmux config to ${tmux_conf}${NC}"
+  cat > "$tmux_conf" <<'TMUX_CONF'
+# Set default terminal and shell
+set  -g default-terminal "xterm-kitty"
+set  -g base-index 1
+setw -g pane-base-index 1
+set  -g default-shell "/usr/bin/zsh"  # Adjust the path to match your shell location
+
+# Keybindings
+set -g status-keys vi
+set -g mode-keys vi
+
+unbind C-b
+set -g prefix C-space
+bind -N "Send the prefix key through to the application" space send-prefix
+bind C-space last-window
+
+bind-key -N "Kill the current window" & kill-window
+bind-key -N "Kill the current pane" x kill-pane
+
+# Mouse and other settings
+set  -g mouse on
+setw -g aggressive-resize off
+setw -g clock-mode-style 12
+set  -g history-limit 2000
+set -g terminal-overrides ",xterm-256color:RGB,xterm*:Tc"
+set -s escape-time 10
+set -g history-limit 10000
+
+# Pane and window controls
+bind '-' split-window -v -c "#{pane_current_path}"
+bind '\' split-window -h -c "#{pane_current_path}"
+bind C-k send-keys "clear"\; send-keys "Enter"
+
+is_vim='echo "#{pane_current_command}" | grep -iqE "(^|\/)g?(view|n?vim?)(diff)?$"'
+bind -n C-h if-shell "$is_vim" "send-keys C-h" "select-pane -L"
+bind -n C-j if-shell "$is_vim" "send-keys C-j" "select-pane -D"
+bind -n C-l if-shell "$is_vim" "send-keys C-l" "select-pane -R"
+
+bind-key -r F new-window -c "#{pane_current_path}"
+bind-key -r D run-shell "t ~/dotfiles"
+
+bind Space last-window
+
+# Status bar configuration
+set-option -g pane-base-index 1
+set-option -g renumber-windows on
+set-option -g status-position top
+set-option -g status-left-length 100
+set-option -g status-right-length 100
+set-option -g status-left " #{session_name}  "
+set-option -g status-right "#{user}@#{host}"
+set-option -g status-style "fg=#7C7D83 bg=#242631"
+set -g status-justify centre
+set-option -g window-status-format " #{window_index}:#{window_name}#{window_flags} "
+set-option -g window-status-current-format " #{window_index}:#{window_name}#{window_flags} "
+set-option -g window-status-current-style "fg=#CA9EE6"
+set-option -g window-status-activity-style none
+
+# Navigation shortcuts
+bind -n M-H previous-window
+bind -n M-L next-window
+
+# Plugin management
+# Use TPM (Tmux Plugin Manager) or place plugins in a defined path
+set -g @plugin 'tmux-plugins/tpm'
+set -g @plugin 'tmux-plugins/tmux-sensible'
+set -g @plugin 'tmux-plugins/tmux-yank'
+set -g @plugin 'tmux-plugins/tmux-prefix-highlight'
+set -g @plugin 'tmux-plugins/tmux-open'
+set -g @plugin 'tmux-plugins/tmux-net-speed'
+set -g @plugin 'tmux-plugins/tmux-better-mouse-mode'
+set -g @plugin 'tmux-plugins/tmux-copycat'
+set -g @plugin 'tmux-plugins/tmux-resurrect'
+set -g @plugin 'tmux-plugins/tmux-continuum'
+set -g @plugin 'christoomey/vim-tmux-navigator'
+
+# Initialize TPM (Tmux Plugin Manager)
+run '~/.tmux/plugins/tpm/tpm'
+
+# Continuum settings
+set -g @continuum-restore 'on'
+set -g @continuum-save-interval '20'  # minutes
+TMUX_CONF
+
+  chown "${target_user}:${target_group}" "$tmux_conf" 2>/dev/null || true
+  chmod 0644 "$tmux_conf"
+  echo -e "${GREEN}tmux config installed for user '${target_user}'.${NC}"
+
+  # Reload the invoking user's ~/.bashrc in a login-ish shell so any tmux-related
+  # exports/aliases pick up. This affects only the spawned subshell, not the caller.
+  if [[ -f "${target_home}/.bashrc" ]]; then
+    echo -e "${CYAN}Sourcing ${target_home}/.bashrc for '${target_user}'...${NC}"
+    sudo -u "$target_user" -H bash -lc 'source ~/.bashrc' 2>/dev/null || true
+  fi
+}
+
 # --- System update / upgrade (upgrade only; not dist-upgrade) ---
 echo -e "\n${CYAN}[0] Prune broken Ondrej PHP PPA (if any) so apt can run${NC}"
 fix_broken_ondrej_php_before_apt
@@ -434,6 +550,7 @@ ensure_composer
 ensure_node_pm2
 ensure_certbot
 ensure_wp_cli
+ensure_tmux
 
 echo -e "\n${GREEN}====================================================${NC}"
 echo -e "${GREEN}     INSTALLATION COMPLETE                          ${NC}"
