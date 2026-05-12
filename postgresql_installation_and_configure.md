@@ -174,6 +174,60 @@ Adjust `php8.4` if you use another PHP version.
 
 ---
 
+## Common PostgreSQL commands (cheat sheet)
+
+Run these from the `psql` prompt unless noted. Connect with `psql -U trading_user -d trading_chart_db -h 127.0.0.1` (or `-h` your server IP from another host).
+
+### `psql` meta-commands (backslash)
+
+| Task | Command |
+|------|---------|
+| List databases | `\l` or `\list` |
+| Connect to a database | `\c trading_chart_db` |
+| List tables in current DB | `\dt` |
+| List tables including system | `\dt+` |
+| Describe a table (columns, indexes) | `\d table_name` |
+| List schemas | `\dn` |
+| List roles (users) | `\du` |
+| Show current database and user | `SELECT current_database(), current_user;` |
+| Quit `psql` | `\q` |
+| Help for meta-commands | `\?` |
+| Help for SQL | `\h CREATE TABLE` (replace with any SQL keyword) |
+
+### SQL: databases and roles
+
+| Task | Example |
+|------|---------|
+| Create database | `CREATE DATABASE my_app;` |
+| Drop database | `DROP DATABASE my_app;` |
+| Create user / role | `CREATE USER app_user WITH PASSWORD 'secret';` |
+| Grant DB access | `GRANT ALL PRIVILEGES ON DATABASE my_app TO app_user;` |
+| Change password | `ALTER USER app_user WITH PASSWORD 'new_secret';` |
+
+### SQL: tables and data
+
+| Task | Example |
+|------|---------|
+| Create table | `CREATE TABLE items (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);` |
+| List tables (SQL) | `SELECT tablename FROM pg_tables WHERE schemaname = 'public';` |
+| Insert row | `INSERT INTO items (name) VALUES ('Widget');` |
+| Select rows | `SELECT * FROM items LIMIT 10;` |
+| Update rows | `UPDATE items SET name = 'Gadget' WHERE id = 1;` |
+| Delete rows | `DELETE FROM items WHERE id = 1;` |
+| Add column | `ALTER TABLE items ADD COLUMN qty INTEGER DEFAULT 0;` |
+| Create index | `CREATE INDEX idx_items_name ON items (name);` |
+| Drop table | `DROP TABLE items;` |
+
+### One-liners from the shell
+
+| Task | Command |
+|------|---------|
+| Run a single SQL statement | `psql -U postgres -d trading_chart_db -c "SELECT count(*) FROM users;"` |
+| Dump database to file | `pg_dump -U trading_user trading_chart_db > backup.sql` |
+| Restore from SQL file | `psql -U trading_user -d trading_chart_db -f backup.sql` |
+
+---
+
 ## Quick checklist
 
 | Item | Server 2 |
