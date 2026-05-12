@@ -1,6 +1,6 @@
 #!/bin/bash
-# Non-interactive VPS stack: system update, PHP (Laravel + WordPress), Nginx, MySQL, Redis,
-# Composer, Node 20 + PM2, Certbot, WP-CLI. Skips what is already installed.
+# Non-interactive VPS stack: system update, PHP (Laravel + WordPress), Nginx, DB, Redis,
+# Composer, Node.js (nvm LTS) + PM2, Certbot, WP-CLI. Skips what is already installed.
 # Ubuntu (ppa:ondrej/php). Run as root: sudo bash installation.sh
 
 set -euo pipefail
@@ -350,19 +350,41 @@ ensure_composer() {
 }
 
 ensure_node_pm2() {
-  if command -v node &>/dev/null; then
-    echo -e "\n${GREEN}Node.js already installed.${NC}"
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  local NVM_INSTALL_VERSION="v0.40.4"
+
+  if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
+    echo -e "\n${CYAN}Installing nvm (${NVM_INSTALL_VERSION})...${NC}"
+    curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_INSTALL_VERSION}/install.sh" | bash
   else
-    echo -e "\n${CYAN}Installing Node.js 20.x and npm...${NC}"
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt-get install -y nodejs
+    echo -e "\n${GREEN}nvm already present at ${NVM_DIR}. Skipping nvm install.${NC}"
   fi
+
+  # nvm.sh uses unset vars; non-interactive ~/.bashrc often returns before nvm, so load nvm.sh explicitly.
+  set +u
+  if [[ -f "$HOME/.bashrc" ]]; then
+    # shellcheck source=/dev/null
+    source "$HOME/.bashrc" || true
+  fi
+  if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "$NVM_DIR/nvm.sh"
+  else
+    set -u
+    echo -e "${RED}nvm.sh not found at ${NVM_DIR}/nvm.sh after install.${NC}"
+    exit 1
+  fi
+
+  echo -e "\n${CYAN}Installing Node.js (nvm LTS)...${NC}"
+  nvm install --lts
+
   if command -v pm2 &>/dev/null; then
     echo -e "${GREEN}PM2 already installed. Skipping.${NC}"
   else
-    echo -e "${CYAN}Installing PM2 globally...${NC}"
+    echo -e "${CYAN}Installing PM2 globally (nvm Node)...${NC}"
     npm install -g pm2
   fi
+  set -u
 }
 
 ensure_certbot() {
