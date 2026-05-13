@@ -251,10 +251,58 @@
 
   <script>
     // ─────────────────────────────────────────────────────────────
-    //  COUNTDOWN — set how many full days from page load until zero
+    //  COUNTDOWN — REMAINING_DAY is the window length; end time is
+    //  stored on first visit (localStorage, cookie fallback) so reloads
+    //  continue the same countdown. Change REMAINING_DAY or bump
+    //  STORAGE_VERSION to start a fresh window.
     // ─────────────────────────────────────────────────────────────
-    const REMAINING_DAY = 2;
-    const countdownEndMs = Date.now() + REMAINING_DAY * 24 * 60 * 60 * 1000;
+    var REMAINING_DAY = 2;
+    var STORAGE_KEY = 'coming_soon_countdown';
+    var STORAGE_VERSION = 1;
+
+    function readStoredState() {
+      var raw = null;
+      try {
+        raw = localStorage.getItem(STORAGE_KEY);
+      } catch (e) {}
+      if (!raw) {
+        var match = document.cookie.match(new RegExp('(?:^|; )' + STORAGE_KEY + '=([^;]*)'));
+        if (match) {
+          try {
+            raw = decodeURIComponent(match[1]);
+          } catch (e2) {}
+        }
+      }
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function writeStoredState(obj) {
+      var raw = JSON.stringify(obj);
+      try {
+        localStorage.setItem(STORAGE_KEY, raw);
+      } catch (e) {}
+      var maxAge = 400 * 24 * 60 * 60;
+      document.cookie = STORAGE_KEY + '=' + encodeURIComponent(raw) + ';path=/;max-age=' + maxAge + ';SameSite=Lax';
+    }
+
+    function getOrCreateCountdownEndMs() {
+      var now = Date.now();
+      var durationMs = REMAINING_DAY * 24 * 60 * 60 * 1000;
+      var data = readStoredState();
+      if (data && data.v === STORAGE_VERSION && data.days === REMAINING_DAY && typeof data.end === 'number') {
+        if (data.end > now) return data.end;
+      }
+      var end = now + durationMs;
+      writeStoredState({ v: STORAGE_VERSION, days: REMAINING_DAY, end: end });
+      return end;
+    }
+
+    var countdownEndMs = getOrCreateCountdownEndMs();
 
     (function ($) {
       $(function () {
